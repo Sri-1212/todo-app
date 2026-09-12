@@ -7,6 +7,7 @@ const db = require('./config/db');
 
 // Import Routes
 const authRoutes = require('./routes/authRoutes');
+const taskRoutes = require('./routes/taskRoutes');
 
 // Initialize Express Application
 const app = express();
@@ -17,6 +18,7 @@ app.use(express.json()); // Enable JSON body parsing for incoming requests
 
 // Mount Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/tasks', taskRoutes);
 
 // Basic Health Check Route
 app.get('/api/health', (req, res) => {
