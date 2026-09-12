@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const pool = require('../config/db');
 const authenticateToken = require('../middleware/auth');
 
 const router = express.Router();
@@ -29,48 +29,42 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ message: 'Password must be at least 6 characters long.' });
   }
 
-  // Check if username or email already exists
-  db.get('SELECT * FROM users WHERE email = ? OR username = ?', [email, username], async (err, existingUser) => {
-    if (err) {
-      return res.status(500).json({ message: 'Database error.', error: err.message });
-    }
+  try {
+    // Check if username or email already exists
+    const checkUser = await pool.query(
+      'SELECT id FROM users WHERE email = $1 OR username = $2',
+      [email, username]
+    );
 
-    if (existingUser) {
+    if (checkUser.rows.length > 0) {
       return res.status(409).json({ message: 'Username or email already in use.' });
     }
 
-    try {
-      // Hash password using bcryptjs
-      const saltRounds = 10;
-      const hashedPassword = await bcrypt.hash(password, saltRounds);
+    // Hash password using bcryptjs
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-      // Insert new user into database
-      db.run(
-        'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-        [username, email, hashedPassword],
-        function (insertErr) {
-          if (insertErr) {
-            return res.status(500).json({ message: 'Failed to create user.', error: insertErr.message });
-          }
+    // Insert user into PostgreSQL
+    const insertResult = await pool.query(
+      'INSERT INTO users (username, email, password) VALUES ($1, $2, $3) RETURNING id, username, email',
+      [username, email, hashedPassword]
+    );
 
-          const newUser = { id: this.lastID, username, email };
-          const token = generateToken(newUser);
+    const newUser = insertResult.rows[0];
+    const token = generateToken(newUser);
 
-          return res.status(201).json({
-            message: 'User registered successfully!',
-            token,
-            user: newUser
-          });
-        }
-      );
-    } catch (hashErr) {
-      return res.status(500).json({ message: 'Password hashing error.', error: hashErr.message });
-    }
-  });
+    return res.status(201).json({
+      message: 'User registered successfully!',
+      token,
+      user: newUser
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Database error.', error: err.message });
+  }
 });
 
 // 2. LOGIN USER: POST /api/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   // Input Validation
@@ -78,11 +72,10 @@ router.post('/login', (req, res) => {
     return res.status(400).json({ message: 'Email and password are required.' });
   }
 
-  // Find user by email
-  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
-    if (err) {
-      return res.status(500).json({ message: 'Database error.', error: err.message });
-    }
+  try {
+    // Find user by email
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const user = userResult.rows[0];
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password.' });
@@ -94,7 +87,6 @@ router.post('/login', (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
-    // Generate JWT Token
     const userPayload = { id: user.id, username: user.username, email: user.email };
     const token = generateToken(userPayload);
 
@@ -103,20 +95,28 @@ router.post('/login', (req, res) => {
       token,
       user: userPayload
     });
-  });
+  } catch (err) {
+    return res.status(500).json({ message: 'Database error.', error: err.message });
+  }
 });
 
 // 3. GET CURRENT USER PROFILE: GET /api/auth/me (Protected Route)
-router.get('/me', authenticateToken, (req, res) => {
-  db.get('SELECT id, username, email, created_at FROM users WHERE id = ?', [req.user.id], (err, user) => {
-    if (err) {
-      return res.status(500).json({ message: 'Database error.', error: err.message });
-    }
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const userResult = await pool.query(
+      'SELECT id, username, email, created_at FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    const user = userResult.rows[0];
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
     }
+
     return res.status(200).json({ user });
-  });
+  } catch (err) {
+    return res.status(500).json({ message: 'Database error.', error: err.message });
+  }
 });
 
 module.exports = router;
