@@ -2,8 +2,8 @@
    TaskFlow Application Logic (Vanilla JS + REST API Integration)
    ========================================================================== */
 
-// Dynamic API URL matching the current host (127.0.0.1 or localhost)
-const API_BASE_URL = `http://${window.location.hostname || 'localhost'}:5000/api`;
+// Production API URL hosted on Render
+const API_BASE_URL = 'https://todo-app-fqo3.onrender.com/api';
 
 // Global Application State
 const state = {
